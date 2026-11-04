@@ -22,6 +22,9 @@
 | `verify_smoke.py` | 桌機 + 手機（Pixel 5 觸控模擬）自動驗證，輸出 `artifacts/*.png`；`--base-url` 可改測 tunnel／Pages 網址 |
 | `tunnel.ps1` | Cloudflare Quick Tunnel（`-Status`／`-Stop`，內建 7844 前置檢查）|
 | `publish-pages.ps1` | 打包 → 建公開 repo → push → 開 GitHub Pages → 等建置並驗證；`-DryRun` 只打包 |
+| `tripo.py` | Tripo3D 生成管線（`--all`／`--name`／`--dry-run`／`--resume`），輸出 GLB + `.meta.json` |
+| `tripo_selftest.py` | 用本機 stub server 驗証生成管線（不需點數）|
+| `verify_models.py` | 產生測試 GLB 驗証「載入 → 替換方塊 → 縮放 → 可遊玩」，跑完自動清除 |
 
 ## 快速啟動
 
@@ -199,6 +202,8 @@ python verify_smoke.py           # headless Chromium（Playwright）+ 自動選�
 python verify_smoke.py --headed  # 想親眼看它撞
 python verify_smoke.py --port 8099  # 指定固定埠
 python verify_smoke.py --base-url https://xxx.trycloudflare.com/index.html  # 改測既有網址（tunnel／Pages／區網 IP）
+python tripo_selftest.py         # Tripo 生成管線（stub server，不需點數）
+python verify_models.py          # GLB 載入→替換方塊→縮放→可遊玩（測試完自動刪除 GLB）
 ```
 
 檢查項目（桌機）：render loop 有跑、8 棟大樓生成、`W` 真的把機甲往前推、加速撞上台北 101 後
@@ -236,22 +241,79 @@ python verify_smoke.py --base-url https://xxx.trycloudflare.com/index.html  # �
 RESULT: PASS
 ```
 
-## 換成 Tripo3D 模型（階段 2）
+## 接 Tripo3D（生成模型 → 自動替換方塊）
 
-程式已經寫好載入與正規化流程，**只要把檔案放進去就會自動替換**；檔案不存在時會靜默沿用方塊版。
+兩條路都支援：**A. 用 `tripo.py` 自動生成**（建議）、**B. 手動在 Tripo 網頁生成後下載**。
+遊戲端不會接觸任何 API key——key 只留在本機 CLI。
 
-1. 在 [Tripo3D](https://www.tripo3d.ai/) 生成／匯出 **GLB**（建議：Y-up、正面朝 `-Z`、
-   貼圖內嵌、面數壓在 3 萬以下），下載後改名成：
-   - `assets/models/mech.glb` → 機甲（自動縮到 `CONFIG.models.mechTargetHeight = 4.2` 高、置中、貼地）
-   - `assets/models/taipei101.glb` → 台北 101（自動縮到原方塊塔同高）
-2. 重新整理頁面即可。Console 會印 `[models] 已套用機甲 GLB：...`。
-3. 要換其他地標：在 `CITY` 加一筆（`id / name / kind / x / z / w / d / h`），
-   並在 `CONFIG.models.buildings` 加上 `id: 'assets/models/xxx.glb'`。
-4. 想一次關掉模型載入：`CONFIG.models.enabled = false`。
-5. 高度／朝向不合：改 `fitToGround()`（縮放、置中、貼地）或 `CONFIG.models.mechTargetHeight`；
-   模型若正面不是 `-Z`，在 GLB 端先轉正，或在載入後補 `model.rotation.y`。
+### A. 自動生成（text_to_model）
 
-目前 `assets/models/` 只有說明檔，所以跑起來是方塊版。
+```powershell
+# 1) 取得 API key（帳號 → API Keys，tsk_ 開頭）：https://platform.tripo3d.ai/
+setx TRIPO_API_KEY tsk_xxxx          # 重開終端；或寫進專案 .env：TRIPO_API_KEY=tsk_xxxx
+
+# 2) 先看會送出的請求（不花點數）
+python tripo.py --all --dry-run
+
+# 3) 生成專案的兩個模型（機甲 + 台北 101）
+python tripo.py --all
+
+# 只生一個／自訂描述
+python tripo.py --name mech --prompt "a boxy bipedal demolition mech robot"
+
+# 任務建了但下載失敗（連結 5 分鐘過期）→ 用同一個 task 續抓
+python tripo.py --name taipei101 --resume <task_id>
+```
+
+輸出：`assets/models/mech.glb` / `assets/models/taipei101.glb`，並附同名 `.meta.json`
+（`task_id`、`prompt`、`model_version`、`bytes`、`sha256`、下載時間）供追溯。
+
+管線行為（已用本機 stub server 驗証，不需點數）：
+
+| 步驟 | API |
+| :--- | :--- |
+| 建任務 | `POST {api}/v2/openapi/task`，`type: text_to_model` + `prompt` + `texture/pbr` + `face_limit` |
+| 輪詢 | `GET {api}/v2/openapi/task/{task_id}`，直到 `status: success`（每 5s，預設 600s 逾時）|
+| 下載 | 取 `output.pbr_model`（fallback `model` / `base_model`）→ **立即下載**（連結 5 分鐘過期）|
+| 收尾 | 寫 `.meta.json`；> 8 MB 警告（手機載入慢）|
+
+自訂 prompt 清單在 `tripo.py` 的 `MODELS`（每個模型有 `face_limit`、`scale_note`），
+加一筆就能多生一個地標。**每次生成會耗 Tripo 點數**（依方案計價），先用 `--dry-run` 確認內容。
+
+### B. 手動（Tripo 網頁）
+
+1. 在 [Tripo3D](https://www.tripo3d.ai/) 生成後匯出 **GLB**（建議：Y-up、貼圖內嵌、面數 ≤ 3 萬）。
+2. 改名丟進 `assets/models/`：`mech.glb`、`taipei101.glb`（其他地標見下方第 3 點）。
+
+### 放進去之後（兩條路相同）
+
+- 重新整理頁面即可，Console 會印 `[models] 已套用機甲 GLB：...` / `[models] 已套用建物 GLB：...`。
+- 機甲：自動縮到 `CONFIG.models.mechTargetHeight = 4.2` m 高、置中、貼地。
+- 台北 101：自動縮到原方塊塔同高；`fitToGround()` 先置中貼地，再用位移搬到 `CITY` 的位置。
+- **朝向 / 高度不對**（Tripo 常是正面朝 `+Z`，本遊戲機甲正面是 `-Z`）：
+
+  ```js
+  models: {
+    mechRotationY: Math.PI,                 // 機甲轉 180°
+    buildingRotationY: { taipei101: Math.PI / 4 },
+    buildingHeightOverride: { taipei101: 62 }, // 不給就用原方塊塔高度
+  }
+  ```
+
+- 要換其他地標：`CITY` 加一筆（`id / name / kind / x / z / w / d / h`）+
+  `CONFIG.models.buildings` 加 `id: 'assets/models/xxx.glb'`。
+- 想一次關掉模型載入：`CONFIG.models.enabled = false`（找不到 GLB 也會自動退回方塊版）。
+- 上線：` .\publish-pages.ps1 -Owner <帳號> -Repo mech-taipei-h5`（GLB 大檔也一併納入，Pages 上限 1 GB）。
+
+目前 `assets/models/` 只有說明檔，所以線上跑起來是方塊版；放（或生成）GLB 後就會換掉。
+
+### 模型載入路徑的驗證（不需要 Tripo 點數）
+
+```powershell
+python tripo_selftest.py   # stub server：建任務→輪詢→下載→meta，並驗 401／缺金鑰
+python verify_models.py    # 產生合法測試 GLB → 載入替換方塊 → 縮放 4.2m → 仍可撞倒大樓；跑完自動刪除
+```
+
 
 ## 已知限制
 

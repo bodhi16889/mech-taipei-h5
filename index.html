@@ -230,6 +230,11 @@
       buildings: {
         taipei101: 'assets/models/taipei101.glb',
       },
+      // Tripo3D 匯出的模型常是「正面朝 +Z」，而本遊戲機甲正面是 -Z；
+      // 轉 180° 就會面朝前。模型太寬/太高時改 mechTargetHeight。
+      mechRotationY: 0,          // 需要轉向時設 Math.PI
+      buildingRotationY: {},     // 例如 { taipei101: Math.PI / 4 }
+      buildingHeightOverride: {},// 例如 { taipei101: 62 }，不給就用原方塊塔高度
       mechTargetHeight: 4.2,
     },
     player: { walkSpeed: 9, sprintSpeed: 19, radius: 1.35, height: 4.2, accel: 14 },
@@ -617,6 +622,7 @@
 
     const mechModel = await tryLoadGLB(CONFIG.models.mech);
     if (mechModel) {
+      mechModel.rotation.y += CONFIG.models.mechRotationY || 0;
       fitToGround(mechModel, CONFIG.models.mechTargetHeight);
       mechParts.clear();
       legs.length = 0;
@@ -630,13 +636,18 @@
       if (!url) continue;
       const model = await tryLoadGLB(url);
       if (!model) continue;
-      const height = building.half.y * 2;
+      // 模型朝向可能與方塊版不同；先轉，再量高度正規化
+      model.rotation.y += (CONFIG.models.buildingRotationY[building.spec.id] || 0);
+      const height = CONFIG.models.buildingHeightOverride[building.spec.id] || building.half.y * 2;
       fitToGround(model, height);
       scene.remove(building.group);
       building.group = model;
       scene.add(model);
-      building.group.position.set(building.spec.x, 0, building.spec.z);
-      building.group.updateMatrixWorld(true);
+      // fitToGround 已把模型置中到原點並貼地，這裡只做「位移」，不能用 position.set 蓋掉
+      model.position.x += building.spec.x;
+      model.position.z += building.spec.z;
+      model.updateMatrixWorld(true);
+      building.modelUrl = url;   // 除錯/驗證用：確認這個建物已換成 GLB
       console.info('[models] 已套用建物 GLB：', building.spec.name, url);
     }
   }

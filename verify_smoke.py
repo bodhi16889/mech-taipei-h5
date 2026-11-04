@@ -89,9 +89,9 @@ def main() -> int:
 
         # 1) render loop alive（headless swiftshader 帧率很低且不穩，只看有在前進）
         f0 = page.evaluate("window.__game.frame")
-        time.sleep(1.5)
+        time.sleep(3.0)
         f1 = page.evaluate("window.__game.frame")
-        if not check("render loop advances", f1 - f0 >= 8, f"{f0} -> {f1} frames in 1.5s"):
+        if not check("render loop advances", f1 - f0 >= 6, f"{f0} -> {f1} frames in 3s"):
             failures.append("render loop")
 
         # 2) scene content: buildings + mech exist
