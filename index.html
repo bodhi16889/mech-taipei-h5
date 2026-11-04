@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a1220" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="assets/icon-192.png" />
+<title>台北機甲拆除模擬器 · Three.js</title>
+<style>
+  :root {
+    --ink: #e8f1ff;
+    --panel: rgba(9, 15, 26, 0.72);
+    --line: rgba(120, 190, 255, 0.28);
+    --accent: #6fd0ff;
+    --warn: #ff9e6d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #070c15; }
+  body {
+    color: var(--ink);
+    font: 13px/1.65 "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .panel {
+    position: fixed;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+  }
+  #title { top: 16px; left: 16px; max-width: 300px; }
+  #title h1 { margin: 0 0 6px; font-size: 15px; letter-spacing: .08em; }
+  #title p { margin: 0; color: #9fb6d4; font-size: 12px; }
+  #title kbd {
+    display: inline-block; min-width: 18px; padding: 0 4px; margin-right: 2px;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: rgba(255,255,255,.06); font: inherit; text-align: center;
+  }
+
+  #meter { top: 16px; right: 16px; width: 320px; }
+  #meter .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #meter .label { color: #9fb6d4; font-size: 12px; letter-spacing: .06em; }
+  #total {
+    font-size: 26px; font-weight: 700; color: var(--warn);
+    font-variant-numeric: tabular-nums; letter-spacing: .02em;
+    text-shadow: 0 0 18px rgba(255, 158, 109, .55);
+  }
+  #total span.unit { font-size: 13px; font-weight: 500; color: #c9a894; margin-left: 2px; }
+  #count { color: #9fb6d4; font-size: 12px; }
+  #log { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; min-height: 4px; }
+  #log .line {
+    font-size: 12px; color: #d7e6f8;
+    animation: slideIn .28s ease-out both;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #log .line b { color: var(--warn); }
+  #log .line .who { color: #8fb6e0; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  #flash {
+    position: fixed; left: 50%; top: 26%;
+    transform: translate(-50%, -50%) scale(.9);
+    font-size: 46px; font-weight: 800; letter-spacing: .04em;
+    color: #ffb187; text-shadow: 0 0 30px rgba(255, 120, 60, .8);
+    opacity: 0; pointer-events: none;
+  }
+  #flash.show { animation: flash .9s ease-out both; }
+  @keyframes flash {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.75); }
+    18% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+    100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
+  }
+
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 16px; height: 16px;
+    margin: -8px 0 0 -8px; pointer-events: none; opacity: .55;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ""; position: absolute; background: var(--accent);
+  }
+  #crosshair::before { left: 7px; top: 0; width: 2px; height: 16px; }
+  #crosshair::after { top: 7px; left: 0; height: 2px; width: 16px; }
+
+  #overlay {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: radial-gradient(circle at 50% 45%, rgba(12, 22, 38, .72), rgba(4, 8, 14, .92));
+    cursor: pointer; transition: opacity .25s ease; z-index: 5;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay .card { text-align: center; max-width: 480px; padding: 0 24px; }
+  #overlay h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: .12em; color: var(--accent); }
+  #overlay p { margin: 6px 0; color: #a8bed9; }
+  #overlay .go {
+    margin-top: 18px; display: inline-block; padding: 10px 26px;
+    border: 1px solid rgba(111, 208, 255, .6); border-radius: 999px;
+    color: #dff2ff; letter-spacing: .18em; font-size: 13px;
+    background: rgba(111, 208, 255, .1);
+  }
+  #hint {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    color: #7f9ab8; font-size: 12px; letter-spacing: .08em; pointer-events: none;
+  }
+
+  /* ---------- H5 / 手機：觸控操作層 ---------- */
+  html { touch-action: none; overscroll-behavior: none; }
+  body {
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
+
+  /* 右半（實際是全螢幕、被搖桿與遮罩蓋在上面）拖曳轉視角 */
+  #look { position: fixed; inset: 0; z-index: 2; }
+
+  #stick {
+    position: fixed; z-index: 3; display: none;
+    left: max(20px, env(safe-area-inset-left));
+    bottom: max(20px, env(safe-area-inset-bottom));
+    width: 132px; height: 132px; border-radius: 50%;
+    border: 1px solid var(--line); background: rgba(12, 22, 38, .42);
+    backdrop-filter: blur(4px); touch-action: none;
+  }
+  #stick .knob {
+    position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px;
+    border-radius: 50%; border: 1px solid rgba(160, 225, 255, .75);
+    background: radial-gradient(circle, rgba(111, 208, 255, .9), rgba(111, 208, 255, .22));
+    box-shadow: 0 0 18px rgba(80, 190, 255, .45);
+    will-change: transform;
+  }
+  #stick .ring {
+    position: absolute; inset: 26px; border-radius: 50%;
+    border: 1px dashed rgba(120, 190, 255, .22);
+  }
+
+  html.touch #stick { display: block; }
+  html.touch #crosshair, html.touch #hint { display: none; }
+  html.touch .kbd-hint { display: none; }
+  html:not(.touch) .touch-hint { display: none; }
+
+  @media (max-width: 560px), (max-height: 500px) {
+    #title { top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); max-width: 44vw; padding: 8px 10px; }
+    #title h1 { font-size: 12px; margin-bottom: 2px; }
+    #title p { font-size: 10px; }
+    #meter { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); width: 42vw; padding: 8px 10px; }
+    #meter .label, #count { font-size: 10px; white-space: nowrap; }
+    #total { font-size: 19px; }
+    #log .line { font-size: 10px; }
+    #flash { font-size: 27px; top: 20%; }
+    #overlay h2 { font-size: 16px; letter-spacing: .08em; }
+    #overlay p { font-size: 11px; }
+    #overlay .go { padding: 9px 20px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="title" class="panel">
+    <h1>台北機甲拆除模擬器</h1>
+    <p class="kbd-hint">
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 ·
+      <kbd>Shift</kbd> 加速 · 滑鼠轉視角 · <kbd>R</kbd> 重置
+    </p>
+    <p class="touch-hint">左下搖桿移動 · 右側拖曳轉視角</p>
+  </div>
+
+  <div id="meter" class="panel">
+    <div class="row">
+      <span class="label">累計扣除建造費</span>
+      <span id="count">0 棟</span>
+    </div>
+    <div id="total">0<span class="unit">萬</span></div>
+    <div id="log"></div>
+  </div>
+
+  <div id="crosshair"></div>
+  <div id="flash">−5,000 萬</div>
+
+  <div id="look"></div>
+  <div id="stick"><div class="ring"></div><div class="knob"></div></div>
+
+  <div id="overlay">
+    <div class="card">
+      <h2>TAIPEI DEMOLITION MECH</h2>
+      <p>駕駛機甲撞倒台北的大樓，每倒一棟記一筆拆除費。</p>
+      <p class="kbd-hint">WASD 移動 · Shift 加速 · 滑鼠左右轉視角 · R 重置</p>
+      <p class="touch-hint">左下搖桿移動 · 右側拖曳轉視角 · 推到邊緣加速</p>
+      <div class="go">點擊畫面開始</div>
+    </div>
+  </div>
+
+  <div id="hint">碰撞判定：機甲外框 vs 大樓外框（AABB）</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+  /* ------------------------------------------------------------------ *
+   * 1. 設定
+   * ------------------------------------------------------------------ */
+  // 觸控裝置（手機/平板）：決定虛擬搖桿、像素比、陰影與粒子量
+  const IS_COARSE = window.matchMedia('(pointer: coarse)').matches;
+  document.documentElement.classList.toggle('touch', IS_COARSE);
+
+  const CONFIG = {
+    models: {
+      // 把 Tripo3D 匯出的 GLB 放到 assets/models/ 就會自動替換方塊版本；
+      // 檔案不存在時靜默 fallback 回程序化方塊。
+      enabled: true,
+      mech: 'assets/models/mech.glb',
+      buildings: {
+        taipei101: 'assets/models/taipei101.glb',
+      },
+      mechTargetHeight: 4.2,
+    },
+    player: { walkSpeed: 9, sprintSpeed: 19, radius: 1.35, height: 4.2, accel: 14 },
+    camera: {
+      distance: 13.5, lookHeight: 3.4,
+      sensitivity: 0.0024,        // 桌機滑鼠
+      touchSensitivity: 0.0045,   // 手機拖曳（px → rad）
+      pitchMin: -0.05, pitchMax: 0.95,
+    },
+    fx: { dust: IS_COARSE ? 50 : 90, chunks: IS_COARSE ? 8 : 14 },
+    cost: 50_000_000,        // 每棟 5,000 萬
+    costLabel: '5,000 萬',
+    // 手機（寬 < 640）用較寬視角，直式也能看到機甲與大樓
+    fov: () => (window.innerWidth < 640 ? 68 : 58),
+  };
+
+  const CITY = [
+    { id: 'taipei101', name: '台北 101',   kind: 'tower101', x: 0,   z: -55, footprint: 18, floors: 9 },
+    { id: 'shinkong',  name: '新光三越大樓', kind: 'box', x: -44, z: -12, w: 20, d: 20, h: 38 },
+    { id: 'cathay',    name: '國泰置地廣場', kind: 'box', x: 44,  z: -16, w: 18, d: 18, h: 30 },
+    { id: 'station',   name: '台北車站',    kind: 'box', x: -42, z: 34,  w: 34, d: 20, h: 12 },
+    { id: 'nangang',   name: '南港展覽館',  kind: 'box', x: 42,  z: 36,  w: 26, d: 16, h: 16 },
+    { id: 'fubon',     name: '富邦人壽大樓', kind: 'box', x: -6,  z: 64,  w: 14, d: 14, h: 24 },
+    { id: 'xinyi',     name: '信義誠品',    kind: 'box', x: 68,  z: 6,   w: 12, d: 12, h: 20 },
+    { id: 'beimen',    name: '北門郵局',    kind: 'box', x: -68, z: 6,   w: 12, d: 12, h: 14 },
+  ];
+
+  const SPAWN = new THREE.Vector3(0, 0, 22);
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  /* ------------------------------------------------------------------ *
+   * 2. DOM
+   * ------------------------------------------------------------------ */
+  const dom = {
+    app: document.getElementById('app'),
+    overlay: document.getElementById('overlay'),
+    total: document.getElementById('total'),
+    count: document.getElementById('count'),
+    log: document.getElementById('log'),
+    flash: document.getElementById('flash'),
+    look: document.getElementById('look'),
+    stick: document.getElementById('stick'),
+    knob: document.querySelector('#stick .knob'),
+  };
+
+  if (IS_COARSE) {
+    const go = dom.overlay.querySelector('.go');
+    if (go) go.textContent = '輕觸畫面開始';
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 3. Renderer / Scene / Camera
+   * ------------------------------------------------------------------ */
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_COARSE ? 1.6 : 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.25;
+  dom.app.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x101c2e);
+  scene.fog = new THREE.Fog(0x101c2e, 110, 340);
+
+  const camera = new THREE.PerspectiveCamera(CONFIG.fov(), window.innerWidth / window.innerHeight, 0.1, 900);
+
+  const hemi = new THREE.HemisphereLight(0x9dc4ff, 0x2b3a4f, 1.9);
+  scene.add(hemi);
+
+  const ambient = new THREE.AmbientLight(0x6f8cb0, 0.85);
+  scene.add(ambient);
+
+  const sun = new THREE.DirectionalLight(0xffe6c4, 2.6);
+  sun.position.set(70, 110, 60);
+  sun.castShadow = true;
+  const SHADOW_SIZE = IS_COARSE ? 1024 : 2048;
+  sun.shadow.mapSize.set(SHADOW_SIZE, SHADOW_SIZE);
+  sun.shadow.camera.near = 20;
+  sun.shadow.camera.far = 420;
+  sun.shadow.camera.left = -150;
+  sun.shadow.camera.right = 150;
+  sun.shadow.camera.top = 150;
+  sun.shadow.camera.bottom = -150;
+  sun.shadow.bias = -0.0005;
+  scene.add(sun);
+
+  const rim = new THREE.DirectionalLight(0x5f9bff, 0.6);
+  rim.position.set(-60, 40, -80);
+  scene.add(rim);
+
+  /* ------------------------------------------------------------------ *
+   * 4. 地面
+   * ------------------------------------------------------------------ */
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshStandardMaterial({ color: 0x1e2b3c, roughness: 0.95, metalness: 0.05 }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const grid = new THREE.GridHelper(600, 120, 0x3e6b96, 0x24364c);
+  grid.position.y = 0.02;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.75;
+  scene.add(grid);
+
+  // 街道標線：四條主要道路
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0x1d2a3b, roughness: 0.9 });
+  for (const [w, h, x, z] of [[12, 220, 0, 0], [220, 12, 0, 0], [12, 220, -20, 0], [220, 12, 0, 45]]) {
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(w, h), roadMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(x, 0.03, z);
+    scene.add(road);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 5. 材質：用 canvas 產生窗戶貼圖，讓方塊有「大樓」的樣子
+   * ------------------------------------------------------------------ */
+  function makeFacadeTexture(baseColor, litColor, cols = 6, rows = 14) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = baseColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const cw = canvas.width / cols;
+    const ch = canvas.height / rows;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const lit = Math.random() < 0.42;
+        ctx.globalAlpha = lit ? 0.45 + Math.random() * 0.55 : 1;
+        ctx.fillStyle = lit ? litColor : 'rgba(8, 12, 20, 0.9)';
+        ctx.fillRect(x * cw + cw * 0.2, y * ch + ch * 0.24, cw * 0.6, ch * 0.46);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  function makeFacadeMaterial({ base = '#3a4759', lit = '#8fd8ff', repeatX = 2, repeatY = 3, emissive = 0x1d3550 } = {}) {
+    const map = makeFacadeTexture(base, lit);
+    map.repeat.set(repeatX, repeatY);
+    return new THREE.MeshStandardMaterial({
+      map,
+      emissiveMap: map,
+      emissive: new THREE.Color(emissive),
+      emissiveIntensity: 0.55,
+      color: 0xffffff,
+      roughness: 0.7,
+      metalness: 0.18,
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 6. 建物生成
+   * ------------------------------------------------------------------ */
+  function makeBoxBuilding(spec) {
+    const group = new THREE.Group();
+    const mat = makeFacadeMaterial({
+      base: '#3a4759',
+      lit: '#8fd8ff',
+      repeatX: Math.max(2, Math.round(spec.w / 6)),
+      repeatY: Math.max(2, Math.round(spec.h / 8)),
+    });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), mat);
+    body.position.y = spec.h / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
+
+    // 女兒牆（屋頂收邊）
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(spec.w * 1.04, 0.8, spec.d * 1.04),
+      new THREE.MeshStandardMaterial({ color: 0x3a4658, roughness: 0.85 }),
+    );
+    cap.position.y = spec.h + 0.4;
+    cap.castShadow = true;
+    group.add(cap);
+
+    group.position.set(spec.x, 0, spec.z);
+    return group;
+  }
+
+  function makeTower101(spec) {
+    const group = new THREE.Group();
+    const mats = [
+      makeFacadeMaterial({ base: '#3d5060', lit: '#9be6ff', repeatX: 3, repeatY: 2 }),
+      makeFacadeMaterial({ base: '#3a5a64', lit: '#a9f0e0', repeatX: 3, repeatY: 2 }),
+    ];
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x4b6478, roughness: 0.5, metalness: 0.4 });
+
+    // 8 段倒梯形塔身（用方塊堆疊近似台北 101）
+    let y = 0;
+    let size = spec.footprint;
+    for (let i = 0; i < spec.floors; i++) {
+      const segH = 6.2;
+      const seg = new THREE.Mesh(new THREE.BoxGeometry(size, segH, size), mats[i % 2]);
+      seg.position.y = y + segH / 2;
+      seg.castShadow = true;
+      seg.receiveShadow = true;
+      group.add(seg);
+
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(size * 1.06, 0.5, size * 1.06), trimMat);
+      trim.position.y = y + segH;
+      trim.castShadow = true;
+      group.add(trim);
+
+      y += segH;
+      size = Math.max(spec.footprint * 0.45, size * 0.92);
+    }
+
+    // 塔尖
+    const spire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 1.5, spec.footprint * 0.9, 8),
+      new THREE.MeshStandardMaterial({ color: 0x9fb6c9, roughness: 0.3, metalness: 0.7 }),
+    );
+    spire.position.y = y + spec.footprint * 0.45;
+    spire.castShadow = true;
+    group.add(spire);
+
+    const light = new THREE.Mesh(
+      new THREE.SphereGeometry(0.55, 12, 12),
+      new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffb347, emissiveIntensity: 3 }),
+    );
+    light.position.y = y + spec.footprint * 0.95;
+    group.add(light);
+
+    group.position.set(spec.x, 0, spec.z);
+    return group;
+  }
+
+  const buildings = [];
+
+  function spawnBuildings() {
+    for (const spec of CITY) {
+      const group = spec.kind === 'tower101' ? makeTower101(spec) : makeBoxBuilding(spec);
+      group.updateMatrixWorld(true);
+      scene.add(group);
+
+      const box = new THREE.Box3().setFromObject(group);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+
+      buildings.push({
+        spec,
+        group,
+        half: size.multiplyScalar(0.5),
+        center,
+        alive: true,
+        collapsedAt: null,
+      });
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 7. 機甲（方塊版；可被 GLB 取代）
+   * ------------------------------------------------------------------ */
+  const mech = new THREE.Group();
+  mech.position.copy(SPAWN);
+  scene.add(mech);
+
+  const mechParts = new THREE.Group();
+  mech.add(mechParts);
+
+  const hullMat = new THREE.MeshStandardMaterial({ color: 0xd8e2ee, roughness: 0.35, metalness: 0.55 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b3646, roughness: 0.6, metalness: 0.4 });
+  const glowMat = new THREE.MeshStandardMaterial({ color: 0x0a2536, emissive: 0x54e0ff, emissiveIntensity: 2.4 });
+
+  const legs = [];
+
+  function buildMechBlockout() {
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.7, 1.1), darkMat);
+    pelvis.position.y = 1.9;
+    pelvis.castShadow = true;
+    mechParts.add(pelvis);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.5, 1.5), hullMat);
+    torso.position.y = 3.0;
+    torso.castShadow = true;
+    mechParts.add(torso);
+
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 1.55), glowMat);
+    cockpit.position.set(0, 3.25, -0.15);
+    mechParts.add(cockpit);
+
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 0.7), darkMat);
+    backpack.position.set(0, 3.15, 0.95);
+    backpack.castShadow = true;
+    mechParts.add(backpack);
+
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 6), hullMat);
+    antenna.position.set(0.8, 4.2, 0.6);
+    mechParts.add(antenna);
+
+    // 手臂
+    for (const side of [-1, 1]) {
+      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 1.1), hullMat);
+      shoulder.position.set(side * 1.55, 3.3, 0);
+      shoulder.castShadow = true;
+      mechParts.add(shoulder);
+
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.5, 0.7), darkMat);
+      arm.position.set(side * 1.6, 2.3, 0);
+      arm.castShadow = true;
+      mechParts.add(arm);
+    }
+
+    // 腿（走路時擺動）
+    for (const side of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(side * 0.65, 1.75, 0);
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.75, 1.15, 0.85), hullMat);
+      thigh.position.y = -0.6;
+      thigh.castShadow = true;
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.1, 0.72), darkMat);
+      shin.position.y = -1.6;
+      shin.castShadow = true;
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.32, 1.5), hullMat);
+      foot.position.set(0, -2.05, -0.2);
+      foot.castShadow = true;
+      pivot.add(thigh, shin, foot);
+      mechParts.add(pivot);
+      legs.push(pivot);
+    }
+
+    // 機甲腳下的補光，避免貼地看不清
+    const lamp = new THREE.PointLight(0x64e6ff, 14, 16, 2);
+    lamp.position.set(0, 1.2, -1.6);
+    mechParts.add(lamp);
+  }
+
+  buildMechBlockout();
+
+  /* ------------------------------------------------------------------ *
+   * 8. 模型載入（Tripo3D GLB → 取代方塊）
+   * ------------------------------------------------------------------ */
+  const gltfLoader = new GLTFLoader();
+
+  function tryLoadGLB(url) {
+    return new Promise((resolve) => {
+      if (!url) return resolve(null);
+      gltfLoader.load(
+        url,
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        () => {
+          console.info(`[models] 找不到 ${url}，沿用程序化方塊版本。`);
+          resolve(null);
+        },
+      );
+    });
+  }
+
+  function fitToGround(object3d, targetHeight) {
+    object3d.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(object3d);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = targetHeight / Math.max(size.y, 1e-4);
+    object3d.scale.multiplyScalar(scale);
+    object3d.updateMatrixWorld(true);
+    box.setFromObject(object3d);
+    object3d.position.x -= (box.min.x + box.max.x) / 2;
+    object3d.position.z -= (box.min.z + box.max.z) / 2;
+    object3d.position.y -= box.min.y;
+    object3d.traverse((node) => {
+      if (node.isMesh) {
+        node.castShadow = true;
+        node.receiveShadow = true;
+      }
+    });
+  }
+
+  async function applyModelOverrides() {
+    if (!CONFIG.models.enabled) return;
+
+    const mechModel = await tryLoadGLB(CONFIG.models.mech);
+    if (mechModel) {
+      fitToGround(mechModel, CONFIG.models.mechTargetHeight);
+      mechParts.clear();
+      legs.length = 0;
+      mech.add(mechModel);
+      mech.userData.modelUrl = CONFIG.models.mech;
+      console.info('[models] 已套用機甲 GLB：', CONFIG.models.mech);
+    }
+
+    for (const building of buildings) {
+      const url = CONFIG.models.buildings[building.spec.id];
+      if (!url) continue;
+      const model = await tryLoadGLB(url);
+      if (!model) continue;
+      const height = building.half.y * 2;
+      fitToGround(model, height);
+      scene.remove(building.group);
+      building.group = model;
+      scene.add(model);
+      building.group.position.set(building.spec.x, 0, building.spec.z);
+      building.group.updateMatrixWorld(true);
+      console.info('[models] 已套用建物 GLB：', building.spec.name, url);
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 9. 倒塌 / 碎石 / 粉塵
+   * ------------------------------------------------------------------ */
+  const collapses = [];
+  const debris = [];
+
+  const debrisMat = new THREE.MeshStandardMaterial({ color: 0x51606f, roughness: 0.9, metalness: 0.1 });
+
+  function dustTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(220, 230, 245, 0.85)');
+    grad.addColorStop(0.55, 'rgba(180, 195, 215, 0.32)');
+    grad.addColorStop(1, 'rgba(150, 165, 185, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const DUST_TEXTURE = dustTexture();
+
+  function spawnDust(position, radius, count = CONFIG.fx.dust) {
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.random() * radius;
+      positions[i * 3] = position.x + Math.cos(angle) * r;
+      positions[i * 3 + 1] = 0.6 + Math.random() * radius * 0.35;
+      positions[i * 3 + 2] = position.z + Math.sin(angle) * r;
+      velocities.push(new THREE.Vector3(Math.cos(angle) * (2 + Math.random() * 5), 1 + Math.random() * 4, Math.sin(angle) * (2 + Math.random() * 5)));
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      map: DUST_TEXTURE,
+      size: Math.max(4, radius * 0.55),
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      color: 0xc9d8ea,
+    });
+    const points = new THREE.Points(geom, mat);
+    scene.add(points);
+    debris.push({ kind: 'dust', points, velocities, life: 0, ttl: 2.4 });
+  }
+
+  function spawnChunks(center, half, count = CONFIG.fx.chunks) {
+    for (let i = 0; i < count; i++) {
+      const size = 0.6 + Math.random() * 1.6;
+      const chunk = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), debrisMat);
+      chunk.castShadow = true;
+      chunk.position.set(
+        center.x + (Math.random() - 0.5) * half.x * 1.6,
+        1 + Math.random() * half.y * 1.4,
+        center.z + (Math.random() - 0.5) * half.z * 1.6,
+      );
+      chunk.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      scene.add(chunk);
+      debris.push({
+        kind: 'chunk',
+        mesh: chunk,
+        velocity: new THREE.Vector3((Math.random() - 0.5) * 14, 4 + Math.random() * 9, (Math.random() - 0.5) * 14),
+        spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
+        life: 0,
+        ttl: 3.2,
+      });
+    }
+  }
+
+  function collapseBuilding(building, awayDir) {
+    if (!building.alive) return;
+    building.alive = false;
+    building.collapsedAt = performance.now();
+
+    const dir = awayDir.clone().setY(0);
+    if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
+    dir.normalize();
+
+    // 以「建築外框朝倒塌方向的邊」為轉軸，讓大樓往外倒
+    const halfAlong = Math.abs(dir.x) * building.half.x + Math.abs(dir.z) * building.half.z;
+    const pivot = new THREE.Group();
+    pivot.position.set(
+      building.center.x + dir.x * halfAlong,
+      0,
+      building.center.z + dir.z * halfAlong,
+    );
+    scene.add(pivot);
+    pivot.updateMatrixWorld(true);
+    pivot.attach(building.group);
+
+    const axis = new THREE.Vector3().crossVectors(UP, dir).normalize();
+
+    collapses.push({
+      building,
+      pivot,
+      axis,
+      dir,
+      t: 0,
+      duration: 1.75,
+      maxAngle: Math.PI / 2 - 0.05,
+      impacted: false,
+    });
+
+    recordDeduction(building);
+  }
+
+  function updateCollapses(dt) {
+    for (const c of collapses) {
+      if (c.done) continue;
+      c.t = Math.min(c.t + dt, c.duration);
+      const k = c.t / c.duration;
+      const eased = k * k; // 重力感：越倒越快
+      c.pivot.setRotationFromAxisAngle(c.axis, c.maxAngle * eased);
+
+      if (!c.impacted && k > 0.72) {
+        c.impacted = true;
+        const b = c.building;
+        spawnDust(new THREE.Vector3(b.center.x + c.dir.x * b.half.x, 0, b.center.z + c.dir.z * b.half.z), Math.max(b.half.x, b.half.z));
+        spawnChunks(b.center, b.half);
+      }
+      if (c.t >= c.duration) c.done = true;
+    }
+  }
+
+  function updateDebris(dt) {
+    for (let i = debris.length - 1; i >= 0; i--) {
+      const d = debris[i];
+      d.life += dt;
+
+      if (d.kind === 'chunk') {
+        d.velocity.y -= 26 * dt;
+        d.mesh.position.addScaledVector(d.velocity, dt);
+        if (d.mesh.position.y < 0.35) {
+          d.mesh.position.y = 0.35;
+          d.velocity.y *= -0.28;
+          d.velocity.x *= 0.72;
+          d.velocity.z *= 0.72;
+          d.spin.multiplyScalar(0.6);
+        }
+        d.mesh.rotation.x += d.spin.x * dt;
+        d.mesh.rotation.y += d.spin.y * dt;
+        d.mesh.rotation.z += d.spin.z * dt;
+        if (d.life > d.ttl - 0.6) {
+          d.mesh.material = d.mesh.material.clone();
+          d.mesh.material.transparent = true;
+          d.mesh.material.opacity = Math.max(0, (d.ttl - d.life) / 0.6) * 0.9;
+        }
+      } else {
+        const pos = d.points.geometry.attributes.position;
+        for (let j = 0; j < d.velocities.length; j++) {
+          const v = d.velocities[j];
+          v.y -= 2.4 * dt;
+          pos.setX(j, pos.getX(j) + v.x * dt);
+          pos.setY(j, Math.max(0.2, pos.getY(j) + v.y * dt));
+          pos.setZ(j, pos.getZ(j) + v.z * dt);
+          v.multiplyScalar(1 - 1.1 * dt);
+        }
+        pos.needsUpdate = true;
+        d.points.material.opacity = Math.max(0, 1 - d.life / d.ttl) * 0.85;
+      }
+
+      if (d.life >= d.ttl) {
+        if (d.kind === 'chunk') scene.remove(d.mesh);
+        else scene.remove(d.points);
+        debris.splice(i, 1);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 10. HUD / 記帳
+   * ------------------------------------------------------------------ */
+  const state = { destroyed: 0, totalCost: 0, log: [], ready: false };
+  const wanFormatter = new Intl.NumberFormat('en-US');
+
+  function recordDeduction(building) {
+    state.destroyed += 1;
+    state.totalCost += CONFIG.cost;
+
+    const stamp = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    const entry = { name: building.spec.name, cost: CONFIG.cost, at: stamp };
+    state.log.unshift(entry);
+
+    dom.total.innerHTML = `${wanFormatter.format(state.totalCost / 10000)}<span class="unit">萬</span>`;
+    dom.count.textContent = IS_COARSE
+      ? `${state.destroyed} 棟`
+      : `${state.destroyed} 棟 · NT$ ${wanFormatter.format(state.totalCost)}`;
+
+    const line = document.createElement('div');
+    line.className = 'line';
+    line.innerHTML = `<b>扣除 5,000 萬建造費</b> ｜ <span class="who">${building.spec.name}</span> · ${stamp}`;
+    dom.log.prepend(line);
+    while (dom.log.children.length > 6) dom.log.lastElementChild.remove();
+
+    dom.flash.textContent = `−5,000 萬 · ${building.spec.name}`;
+    dom.flash.classList.remove('show');
+    void dom.flash.offsetWidth; // 重新觸發動畫
+    dom.flash.classList.add('show');
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 11. 輸入
+   * ------------------------------------------------------------------ */
+  const keys = Object.create(null);
+  const look = { yaw: 0, pitch: 0.28, locked: false };
+  // 虛擬搖桿：x/y ∈ [-1, 1]，y > 0 = 前進
+  const stick = { active: false, id: null, x: 0, y: 0 };
+  const STICK_RADIUS = 52;
+  let started = false;
+
+  window.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code === 'KeyR') window.location.reload();
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  window.addEventListener('blur', () => {
+    for (const k of Object.keys(keys)) keys[k] = false;
+    resetStick();
+  });
+
+  function start() {
+    if (started) return;
+    started = true;
+    dom.overlay.classList.add('hidden');
+    if (!IS_COARSE) renderer.domElement.requestPointerLock?.();
+  }
+
+  dom.overlay.addEventListener('click', start);
+
+  document.addEventListener('pointerlockchange', () => {
+    look.locked = document.pointerLockElement === renderer.domElement;
+    if (IS_COARSE) return;                 // 手機不靠 pointer lock
+    dom.overlay.classList.toggle('hidden', look.locked);
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!look.locked) return;
+    look.yaw -= e.movementX * CONFIG.camera.sensitivity;
+    look.pitch = THREE.MathUtils.clamp(
+      look.pitch + e.movementY * CONFIG.camera.sensitivity,
+      CONFIG.camera.pitchMin,
+      CONFIG.camera.pitchMax,
+    );
+  });
+
+  /* ---- 虛擬搖桿（Pointer Events，滑鼠也能用）---- */
+  function applyStick(e) {
+    const rect = dom.stick.getBoundingClientRect();
+    let dx = e.clientX - (rect.left + rect.width / 2);
+    let dy = e.clientY - (rect.top + rect.height / 2);
+    const len = Math.hypot(dx, dy);
+    if (len > STICK_RADIUS) {
+      dx = (dx / len) * STICK_RADIUS;
+      dy = (dy / len) * STICK_RADIUS;
+    }
+    dom.knob.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    stick.x = dx / STICK_RADIUS;
+    stick.y = -dy / STICK_RADIUS;        // 螢幕往上 = 前進
+  }
+
+  function resetStick() {
+    stick.active = false;
+    stick.id = null;
+    stick.x = 0;
+    stick.y = 0;
+    if (dom.knob) dom.knob.style.transform = 'translate(0px, 0px)';
+  }
+
+  dom.stick.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    start();
+    stick.active = true;
+    stick.id = e.pointerId;
+    dom.stick.setPointerCapture(e.pointerId);
+    applyStick(e);
+  });
+  dom.stick.addEventListener('pointermove', (e) => {
+    if (stick.active && e.pointerId === stick.id) applyStick(e);
+  });
+  for (const evt of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    dom.stick.addEventListener(evt, (e) => {
+      if (e.pointerId === stick.id) resetStick();
+    });
+  }
+
+  /* ---- 拖曳轉視角（手機右側 / 桌機未鎖定滑鼠時）---- */
+  const dragLook = { id: null, x: 0, y: 0 };
+
+  dom.look.addEventListener('pointerdown', (e) => {
+    if (e.target !== dom.look) return;
+    start();
+    dragLook.id = e.pointerId;
+    dragLook.x = e.clientX;
+    dragLook.y = e.clientY;
+    dom.look.setPointerCapture(e.pointerId);
+  });
+  dom.look.addEventListener('pointermove', (e) => {
+    if (dragLook.id !== e.pointerId) return;
+    const dx = e.clientX - dragLook.x;
+    const dy = e.clientY - dragLook.y;
+    dragLook.x = e.clientX;
+    dragLook.y = e.clientY;
+    look.yaw -= dx * CONFIG.camera.touchSensitivity;
+    look.pitch = THREE.MathUtils.clamp(
+      look.pitch + dy * CONFIG.camera.touchSensitivity,
+      CONFIG.camera.pitchMin,
+      CONFIG.camera.pitchMax,
+    );
+  });
+  for (const evt of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    dom.look.addEventListener(evt, (e) => {
+      if (e.pointerId === dragLook.id) dragLook.id = null;
+    });
+  }
+  // iOS 拖曳時不要捲動頁面 / 雙擊放大
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('dblclick', (e) => e.preventDefault());
+
+  /* ------------------------------------------------------------------ *
+   * 12. 更新迴圈
+   * ------------------------------------------------------------------ */
+  const velocity = new THREE.Vector3();
+  const moveDir = new THREE.Vector3();
+  const forward = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const cameraTarget = new THREE.Vector3();
+  const cameraOffset = new THREE.Vector3();
+  const clock = new THREE.Clock();
+  let walkPhase = 0;
+
+  function updatePlayer(dt) {
+    forward.set(-Math.sin(look.yaw), 0, -Math.cos(look.yaw));
+    right.set(Math.cos(look.yaw), 0, -Math.sin(look.yaw));
+
+    // 鍵盤 + 虛擬搖桿（類比：輕推就走慢、推到邊緣就加速）
+    let ix = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + stick.x;
+    let iz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) + stick.y;
+    const mag = Math.hypot(ix, iz);
+    if (mag > 1) {
+      ix /= mag;
+      iz /= mag;
+    }
+    const analog = mag < 0.12 ? 0 : Math.min(1, mag);
+
+    moveDir.set(0, 0, 0);
+    if (analog > 0) moveDir.addScaledVector(right, ix).addScaledVector(forward, iz).normalize();
+
+    const sprinting = keys.ShiftLeft || keys.ShiftRight || Math.hypot(stick.x, stick.y) > 0.86;
+    const speed = (sprinting ? CONFIG.player.sprintSpeed : CONFIG.player.walkSpeed) * analog;
+    velocity.lerp(moveDir.multiplyScalar(speed), Math.min(1, CONFIG.player.accel * dt));
+
+    mech.position.addScaledVector(velocity, dt);
+
+    // 面向移動方向（模型正面朝 -Z）
+    if (velocity.lengthSq() > 0.6) {
+      const targetYaw = Math.atan2(-velocity.x, -velocity.z);
+      let delta = targetYaw - mech.rotation.y;
+      delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+      mech.rotation.y += delta * Math.min(1, 12 * dt);
+    }
+
+    // 走路的腿部擺動
+    const stride = Math.min(velocity.length() / CONFIG.player.walkSpeed, 1.6);
+    walkPhase += dt * (4 + stride * 5);
+    legs.forEach((leg, i) => {
+      const sign = i === 0 ? 1 : -1;
+      leg.rotation.x = Math.sin(walkPhase) * 0.55 * stride * sign;
+    });
+    mechParts.position.y = Math.sin(walkPhase * 2) * 0.06 * stride;
+  }
+
+  function resolveCollisions() {
+    const p = mech.position;
+    const radius = CONFIG.player.radius;
+
+    for (const b of buildings) {
+      if (!b.alive) continue;
+
+      const dx = p.x - b.center.x;
+      const dz = p.z - b.center.z;
+      const overlapX = b.half.x + radius - Math.abs(dx);
+      const overlapZ = b.half.z + radius - Math.abs(dz);
+      if (overlapX <= 0 || overlapZ <= 0) continue;
+
+      // 先推出（最小重疊軸），再記錄撞擊
+      if (overlapX < overlapZ) p.x += Math.sign(dx || 1) * overlapX;
+      else p.z += Math.sign(dz || 1) * overlapZ;
+
+      const awayDir = new THREE.Vector3(b.center.x - p.x, 0, b.center.z - p.z);
+      collapseBuilding(b, awayDir);
+      velocity.set(0, 0, 0);
+    }
+  }
+
+  function updateCamera(dt) {
+    cameraTarget.set(mech.position.x, mech.position.y + CONFIG.camera.lookHeight, mech.position.z);
+
+    // 直式手機（高 > 寬）把鏡頭拉遠一點，才看得到機甲與前方大樓
+    const portrait = window.innerHeight > window.innerWidth * 1.1;
+    const dist = CONFIG.camera.distance * (portrait ? 1.18 : 1);
+    const horizontal = Math.cos(look.pitch) * dist;
+    cameraOffset.set(
+      Math.sin(look.yaw) * horizontal,
+      Math.sin(look.pitch) * dist + 1.6,
+      Math.cos(look.yaw) * horizontal,
+    );
+
+    const desired = cameraTarget.clone().add(cameraOffset);
+    desired.y = Math.max(desired.y, 1.4);
+    camera.position.lerp(desired, Math.min(1, 9 * dt));
+    camera.lookAt(cameraTarget);
+  }
+
+  let frame = 0;
+
+  function animate() {
+    const raw = clock.getDelta();
+    const dt = Math.min(raw, 0.1);           // 位移用：放寬到 0.1s，低幀率（手機）也不會變慢；單幀位移 1.9m 遠小於大樓寬度，不會穿模
+    const animDt = Math.min(raw, 0.25);      // 動畫用，讓倒塌時長與幀率脫鉤
+    updatePlayer(dt);
+    resolveCollisions();
+    updateCollapses(animDt);
+    updateDebris(animDt);
+    updateCamera(dt);
+    renderer.render(scene, camera);
+    frame += 1;
+    requestAnimationFrame(animate);
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.fov = CONFIG.fov();
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  /* ------------------------------------------------------------------ *
+   * 13. 啟動
+   * ------------------------------------------------------------------ */
+  spawnBuildings();
+  camera.position.set(SPAWN.x, 8, SPAWN.z + 14);
+  animate();
+
+  applyModelOverrides().then(() => {
+    state.ready = true;
+  });
+
+  // 自動化驗證 / 除錯用鉤子
+  window.__game = {
+    CONFIG,
+    state,
+    buildings,
+    collapses,
+    mech,
+    scene,
+    camera,
+    renderer,
+    isCoarse: IS_COARSE,
+    input: { keys, look, stick, start, resetStick },
+    get started() { return started; },
+    get frame() { return frame; },
+    teleport(x, z) {
+      mech.position.set(x, 0, z);
+      velocity.set(0, 0, 0);
+    },
+    get aliveBuildings() { return buildings.filter((b) => b.alive).length; },
+  };
+  </script>
+</body>
+</html>
