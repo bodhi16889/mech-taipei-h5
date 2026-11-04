@@ -243,25 +243,29 @@ RESULT: PASS
 
 ## 接 Tripo3D（生成模型 → 自動替換方塊）
 
-兩條路都支援：**A. 用 `tripo.py` 自動生成**（建議）、**B. 手動在 Tripo 網頁生成後下載**。
-遊戲端不會接觸任何 API key——key 只留在本機 CLI。
+> ⛔ **付費路線已暫停（2026-11-04）**：Tripo **API 是點數制**（1 credit = US$0.01；
+> `text_to_model` + standard texture ≈ **20 credits ≈ US$0.20／模型**，兩個模型約 US$0.40；
+> 新帳號首次建立 API key 會送 2,000 credits ≈ US$20 額度）。
+> 因此 `tripo.py` **預設拒絕送出生成請求**（exit 4），要付費級生成必須明寫 `--allow-credits`。
+> 現在遊戲跑的是**方塊版**（找不到 GLB 就自動 fallback），**不花任何錢**。
 
-### A. 自動生成（text_to_model）
+不花錢就能換模型的路線（推薦）：**B. 手動在 Tripo Studio 用免費額度生成後匯出 GLB**。
+管線程式（A）保留著，哪天要花點數再開。
+
+### A. 自動生成（text_to_model）— 目前停用（付費）
 
 ```powershell
-# 1) 取得 API key（帳號 → API Keys，tsk_ 開頭）：https://platform.tripo3d.ai/
-setx TRIPO_API_KEY tsk_xxxx          # 重開終端；或寫進專案 .env：TRIPO_API_KEY=tsk_xxxx
-
-# 2) 先看會送出的請求（不花點數）
+# 不花錢：只看會送出的請求
 python tripo.py --all --dry-run
 
-# 3) 生成專案的兩個模型（機甲 + 台北 101）
-python tripo.py --all
+# 真的生成（會扣點數，必須明示同意）
+setx TRIPO_API_KEY tsk_xxxx          # 重開終端；或寫進專案 .env：TRIPO_API_KEY=tsk_xxxx
+python tripo.py --all --allow-credits
 
 # 只生一個／自訂描述
-python tripo.py --name mech --prompt "a boxy bipedal demolition mech robot"
+python tripo.py --name mech --prompt "a boxy bipedal demolition mech robot" --allow-credits
 
-# 任務建了但下載失敗（連結 5 分鐘過期）→ 用同一個 task 續抓
+# 任務建了但下載失敗（連結 5 分鐘過期）→ 用同一個 task 續抓（不新增花費）
 python tripo.py --name taipei101 --resume <task_id>
 ```
 
@@ -272,18 +276,23 @@ python tripo.py --name taipei101 --resume <task_id>
 
 | 步驟 | API |
 | :--- | :--- |
+| 付費守門 | 未帶 `--allow-credits` → 直接拒絕（exit 4），**不會呼叫 API**；`--resume` 不新增花費 |
 | 建任務 | `POST {api}/v2/openapi/task`，`type: text_to_model` + `prompt` + `texture/pbr` + `face_limit` |
 | 輪詢 | `GET {api}/v2/openapi/task/{task_id}`，直到 `status: success`（每 5s，預設 600s 逾時）|
 | 下載 | 取 `output.pbr_model`（fallback `model` / `base_model`）→ **立即下載**（連結 5 分鐘過期）|
 | 收尾 | 寫 `.meta.json`；> 8 MB 警告（手機載入慢）|
 
-自訂 prompt 清單在 `tripo.py` 的 `MODELS`（每個模型有 `face_limit`、`scale_note`），
-加一筆就能多生一個地標。**每次生成會耗 Tripo 點數**（依方案計價），先用 `--dry-run` 確認內容。
+自訂 prompt 清單在 `tripo.py` 的 `MODELS`（每個模型有 `face_limit`、`credits`、`scale_note`），
+加一筆就能多生一個地標。執行前會先印預估花費。
 
-### B. 手動（Tripo 網頁）
+### B. 手動（Tripo 網頁）— 免費額度
 
-1. 在 [Tripo3D](https://www.tripo3d.ai/) 生成後匯出 **GLB**（建議：Y-up、貼圖內嵌、面數 ≤ 3 萬）。
-2. 改名丟進 `assets/models/`：`mech.glb`、`taipei101.glb`（其他地標見下方第 3 點）。
+1. 在 [Tripo Studio](https://www.tripo3d.ai/) 用帳號的免費額度生成（Basic 方案每月有 300 studio credits；
+   純手動操作不需要建立 API key，也就不會進入 API 點數計費）。
+2. 匯出 **GLB**（建議：Y-up、貼圖內嵌、面數 ≤ 3 萬）。
+3. 改名丟進 `assets/models/`：`mech.glb`、`taipei101.glb`（其他地標見下方第 3 點）。
+
+也可以完全不碰 Tripo：用 Blender 建模型或維持現在的方塊版，遊戲都能跑。
 
 ### 放進去之後（兩條路相同）
 

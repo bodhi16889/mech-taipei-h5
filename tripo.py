@@ -48,6 +48,7 @@ MODELS: dict[str, dict] = {
             "standing straight in T-pose, facing forward"
         ),
         "face_limit": 12000,
+        "credits": 20,   # text_to_model + standard texture ≈ 20 credits ≈ US$0.20
         "scale_note": "遊戲內會自動縮到 4.2m 高、置中、貼地（CONFIG.models.mechTargetHeight）",
     },
     "taipei101": {
@@ -58,6 +59,7 @@ MODELS: dict[str, dict] = {
             "game-ready low poly, clean topology, centered on origin"
         ),
         "face_limit": 20000,
+        "credits": 20,
         "scale_note": "遊戲內會自動縮到原方塊塔同高，並依 CITY 設定定位",
     },
 }
@@ -135,6 +137,9 @@ def create_task(api_base: str, api_key: str, name: str, spec: dict, args) -> str
     if args.negative_prompt:
         payload["negative_prompt"] = args.negative_prompt
 
+    credits = int(spec.get("credits") or 20)
+    print(f"[{name}] 預估花費：約 {credits} credits ≈ US${credits * 0.01:.2f}")
+
     if args.dry_run:
         print(f"[dry-run] POST {api_base}/task")
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -208,6 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--poll-interval", type=float, default=5.0)
     parser.add_argument("--timeout", type=float, default=600.0)
     parser.add_argument("--dry-run", action="store_true", help="只印出會送出的請求，不呼叫 API")
+    parser.add_argument(
+        "--allow-credits", action="store_true",
+        help="明確同意消耗 Tripo 點數（API 為點數制，預設拒絕，避免意外花錢）",
+    )
     args = parser.parse_args(argv)
 
     if args.list:
@@ -234,6 +243,15 @@ def main(argv: list[str] | None = None) -> int:
         specs[name] = spec
 
     if not args.resume and not args.dry_run:
+        # 付費守門：預設不送出生成請求，避免意外花點數（使用者 2026-11-04 決定先不付費）
+        if not args.allow_credits:
+            print("Tripo API 是點數制（1 credit = US$0.01；text_to_model + texture ≈ 20 credits ≈ US$0.20／模型），", file=sys.stderr)
+            print("已依設定暫停付費生成，tripo.py 預設不送出請求。", file=sys.stderr)
+            print("  · 真的要花點數：加 --allow-credits", file=sys.stderr)
+            print("  · 不花錢：在 Tripo Studio 網頁用免費額度生成後匯出 GLB 放進 assets/models/（見 README）", file=sys.stderr)
+            print("  · 已有任務只下載：--resume <task_id>（不新增花費）", file=sys.stderr)
+            return 4
+
         api_key = resolve_api_key(args.api_key)
         if not api_key:
             print("找不到 Tripo API key。", file=sys.stderr)

@@ -108,7 +108,7 @@ def main() -> int:
         # 1) 正常流程
         STATE["polls"] = 0
         proc = run_tripo([
-            "--name", "mock", "--prompt", "a stub mech",
+            "--name", "mock", "--prompt", "a stub mech", "--allow-credits",
             "--api-base", api, "--api-key", "test-key",
             "--out-dir", tmp, "--poll-interval", "0.05", "--timeout", "30",
         ])
@@ -134,7 +134,7 @@ def main() -> int:
 
         # 2) 金鑰錯誤 → 401，exit 3
         proc = run_tripo([
-            "--name", "mock", "--prompt", "x",
+            "--name", "mock", "--prompt", "x", "--allow-credits",
             "--api-base", api, "--api-key", "wrong-key",
             "--out-dir", tmp, "--poll-interval", "0.05", "--timeout", "10",
         ])
@@ -143,9 +143,21 @@ def main() -> int:
               proc.stderr.strip()[:120])
 
         # 3) 沒有金鑰 → exit 2（用已知模型，才會走到金鑰檢查而不是 argparse 的未知模型錯誤）
-        proc = run_tripo(["--name", "mech"], with_key=False)
+        proc = run_tripo(["--name", "mech", "--allow-credits"], with_key=False)
         check("沒有金鑰 exit 2", proc.returncode == 2, f"exit={proc.returncode}")
         check("沒有金鑰有設定指引", "TRIPO_API_KEY" in proc.stderr, proc.stderr.strip().splitlines()[:1])
+
+        # 4) 付費守門：沒加 --allow-credits 不得送出任何請求（exit 4）
+        posts_before = len(STATE["posts"])
+        proc = run_tripo([
+            "--name", "mock", "--prompt", "x",
+            "--api-base", api, "--api-key", "test-key",
+            "--out-dir", tmp,
+        ])
+        check("未同意花點數 exit 4", proc.returncode == 4, f"exit={proc.returncode}")
+        check("未同意花點數就不打 API", len(STATE["posts"]) == posts_before)
+        check("有提示如何不花錢", "allow-credits" in proc.stderr and "tripo" in proc.stderr.lower(),
+              proc.stderr.strip().splitlines()[0][:80])
 
     server.shutdown()
     print()
