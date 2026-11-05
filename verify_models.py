@@ -1,3 +1,5 @@
+# LEGACY: 這是 V1（方塊沙盒）的驗證腳本，對應的 index.html 已被 V3 取代。
+# 保留是為了歷史對照；現行驗證請用 verify_v3.py。
 #!/usr/bin/env python3
 """驗證「GLB 替換方塊」這條路真的可用——不需要 Tripo 點數。
 

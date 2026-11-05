@@ -1,3 +1,5 @@
+# LEGACY: 這是 V1（方塊沙盒）的驗證腳本，對應的 index.html 已被 V3 取代。
+# 保留是為了歷史對照；現行驗證請用 verify_v3.py。
 """Smoke test for threejs-mech-taipei/index.html.
 
 Starts a local static server, drives the page in headless Chromium (Playwright),
